@@ -15,6 +15,7 @@
 #define DHTPIN 2                // Digital pin for DHT sensor
 #define DHTTYPE DHT22           // Define type of DHT sensor (DHT22)
 const int chipSelect = 10;      // SD card chip select pin
+const int buttonPin = 3;        // Pin for the button to toggle display modes
 
 // Sensor and Display Objects
 LiquidTWI lcd(0);               // Initialize LCD using LiquidTWI library
@@ -33,6 +34,12 @@ const char* monthsOfTheYear[13] = {"   ", "Jan", "Feb", "Mar", "Apr", "May", "Ju
 float humidity = 0.0;           // Variable to store humidity reading
 float temperatureF = 0.0;       // Variable to store temperature reading (in Fahrenheit)
 float pressureKPA = 0.0;        // Variable to store pressure reading (in kPa)
+
+// Average Values
+float totalHumidity = 0.0;      // Total humidity for averaging
+float totalTemperature = 0.0;    // Total temperature for averaging
+float totalPressure = 0.0;       // Total pressure for averaging
+int readingsCount = 0;           // Number of readings for averaging
 
 // Error Handling Function
 void error(const char *str) {
@@ -53,6 +60,9 @@ void setup() {
     // LCD Initialization
     lcd.begin(20, 4);           // Initialize LCD with 20 columns and 4 rows
     lcd.print("   Weather Logger"); // Display initial message on LCD
+
+    // Button Initialization
+    pinMode(buttonPin, INPUT_PULLUP); // Set button pin as input with pull-up resistor
 
     // SD Card Initialization
     pinMode(chipSelect, OUTPUT); // Set chip select pin as output
@@ -110,11 +120,17 @@ void loop() {
         lastLogTime = millis();         // Update last log time
         logData();                     // Log sensor data
     }
-  
+
     // Sync to SD card if required
     if (millis() - syncTime >= SYNC_INTERVAL) {
         syncTime = millis();            // Update sync time
         logfile.flush();                // Ensure data is written to SD card
+    }
+
+    // Check for button press to toggle display mode
+    if (digitalRead(buttonPin) == LOW) {
+        toggleDisplayMode();            // Call function to change display mode
+        delay(300);                     // Debounce delay
     }
 }
 
@@ -151,6 +167,18 @@ void logData() {
     logfile.print(", ");
     logfile.print(pressureKPA);        // Log pressure
     logfile.println();                  // End line for new entry
+
+    // Update averages
+    totalHumidity += humidity;         // Add current humidity to total
+    totalTemperature += temperatureF;   // Add current temperature to total
+    totalPressure += pressureKPA;      // Add current pressure to total
+    readingsCount++;                   // Increment readings count
+
+    // Calculate and display averages every 10 readings
+    if (readingsCount >= 10) {
+        displayAverages();
+        resetAverages();                // Reset averages for next calculations
+    }
 
     #if ECHO_TO_SERIAL
     printLogToSerial(m, now);         // Optionally print log to serial
@@ -198,6 +226,46 @@ void printLogToSerial(uint32_t m, const DateTime& now) {
     Serial.print(", ");
     Serial.print(pressureKPA);          // Print pressure
     Serial.println();                   // New line for next entry
+}
+
+// Toggle Display Mode Function
+void toggleDisplayMode() {
+    static int displayMode = 0; // Variable to track the current display mode
+    displayMode = (displayMode + 1) % 3; // Cycle through three modes
+
+    lcd.clear(); // Clear the LCD
+    if (displayMode == 0) {
+        lcd.print("Humidity: ");
+        lcd.printf("%.1f%%", humidity); // Display humidity
+    } else if (displayMode == 1) {
+        lcd.print("Temp: ");
+        lcd.printf("%.1fF", temperatureF); // Display temperature
+    } else if (displayMode == 2) {
+        lcd.print("Pressure: ");
+        lcd.printf("%.1f kPa", pressureKPA); // Display pressure
+    }
+}
+
+// Reset Averages Function
+void resetAverages() {
+    totalHumidity = 0.0;      // Reset total humidity
+    totalTemperature = 0.0;    // Reset total temperature
+    totalPressure = 0.0;       // Reset total pressure
+    readingsCount = 0;         // Reset readings count
+}
+
+// Display Averages Function
+void displayAverages() {
+    lcd.clear(); // Clear the LCD
+    lcd.print("Avg Hum: ");
+    lcd.printf("%.1f%%", totalHumidity / readingsCount); // Display average humidity
+    lcd.setCursor(0, 1);
+    lcd.print("Avg Temp: ");
+    lcd.printf("%.1fF", totalTemperature / readingsCount); // Display average temperature
+    lcd.setCursor(0, 2);
+    lcd.print("Avg Press: ");
+    lcd.printf("%.1f kPa", totalPressure / readingsCount); // Display average pressure
+    delay(2000); // Show averages for 2 seconds before returning to normal display
 }
 
 // Update LCD Function
